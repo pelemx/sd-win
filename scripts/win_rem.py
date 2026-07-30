@@ -11,7 +11,7 @@ sharx_env = globals().copy()
 
 def handle_client(client_socket):
     welcome = (
-        "=== SharX Remote CLI (Windows/Python Injection) ===\n"
+        "=== SharX Remote CLI (Windows/Python ) ===\n"
         "-> Type raw Python to interact with WebUI memory.\n"
         "-> Prefix with 'sys:' to run Windows CMD commands (e.g., sys: dir)\n"
         "-> Type 'exit' to disconnect.\n> "
